@@ -109,6 +109,25 @@
 </head>
 <body class="p-4 md:p-8">
 
+    <!-- API KEY INPUT BAR (NEW) -->
+    <div id="apiKeyBar" class="mb-8 p-4 rounded-xl shadow-xl bg-yellow-100 border border-yellow-300 text-yellow-800 hidden">
+        <p class="font-semibold mb-3 flex items-center">
+            <i data-lucide="key" class="w-5 h-5 mr-2"></i>
+            API Key Required for GitHub Pages
+        </p>
+        <p class="text-sm mb-3">
+            To enable image generation outside of the Canvas environment, please enter your Gemini API Key below. It will only be stored in your browser's local storage.
+        </p>
+        <div class="flex flex-col sm:flex-row gap-3">
+            <input type="password" id="apiKeyInput" placeholder="Enter your Gemini API Key here" class="flex-grow p-2 rounded-lg border border-yellow-300 text-gray-800 focus:ring-yellow-500 focus:border-yellow-500">
+            <button id="saveApiKeyBtn" class="bg-yellow-600 hover:bg-yellow-700 text-white font-medium py-2 px-4 rounded-lg transition duration-150 shrink-0">
+                Save Key
+            </button>
+        </div>
+        <p id="apiKeyStatus" class="mt-2 text-sm hidden"></p>
+    </div>
+    <!-- END API KEY INPUT BAR -->
+
     <div class="max-w-7xl mx-auto">
         <h1 class="text-3xl md:text-4xl font-extrabold text-main-title text-center mb-8">
             <span class="text-h2-color">LeGods</span> Christmas Wardrobe
@@ -214,12 +233,13 @@
         
         let originalImageBase64 = null;
         let selectedTraits = {}; // Holds {Category: TraitKey}
+        let currentApiKey = ""; // New variable to hold the active API key
         
         // Model used for image editing
         const API_MODEL = "gemini-2.5-flash-image-preview";
         // CRITICAL: Set the API Key to an empty string. This will work in the Canvas environment
         // but will require manual input on a standalone server if the hosting environment doesn't inject it.
-        const API_KEY = ""; 
+        const API_KEY_PLACEHOLDER = ""; 
 
         // --- Countdown Variables ---
         let countdownInterval = null;
@@ -233,7 +253,14 @@
         const downloadBtn = document.getElementById('downloadBtn');
         const errorMsg = document.getElementById('errorMsg');
         
-        // Original Image Elements (NEWLY ADDED)
+        // API Key Elements (NEW)
+        const apiKeyBar = document.getElementById('apiKeyBar');
+        const apiKeyInput = document.getElementById('apiKeyInput');
+        const saveApiKeyBtn = document.getElementById('saveApiKeyBtn');
+        const apiKeyStatus = document.getElementById('apiKeyStatus');
+        const API_KEY_STORAGE_KEY = 'gemini_api_key'; // Local storage key
+        
+        // Original Image Elements
         const originalImage = document.getElementById('originalImage');
         const originalPlaceholder = document.getElementById('originalPlaceholder');
 
@@ -304,6 +331,57 @@
         // --- Utility Functions ---
 
         /**
+         * Initializes the API key from local storage or defaults to the placeholder.
+         * Displays the input bar if no key is found.
+         */
+        function initializeApiKey() {
+            // Check if we are running in the Canvas environment (where the placeholder works)
+            if (typeof __api_key !== 'undefined') {
+                // Use the environment-provided key if available (for Canvas)
+                currentApiKey = API_KEY_PLACEHOLDER;
+            } else {
+                // Not in Canvas, check local storage for user-provided key
+                const storedKey = localStorage.getItem(API_KEY_STORAGE_KEY);
+                if (storedKey) {
+                    currentApiKey = storedKey;
+                    apiKeyInput.value = storedKey; // Pre-fill the input
+                    console.log("Using API Key from local storage.");
+                } else {
+                    currentApiKey = "";
+                    apiKeyBar.classList.remove('hidden');
+                    console.warn("No API Key found. Generation will fail until one is entered.");
+                }
+            }
+            updateGenerateButtonState();
+        }
+
+        /**
+         * Handles saving the API key from the input bar to local storage.
+         */
+        function handleSaveApiKey() {
+            const key = apiKeyInput.value.trim();
+            if (key) {
+                localStorage.setItem(API_KEY_STORAGE_KEY, key);
+                currentApiKey = key;
+                
+                apiKeyStatus.textContent = 'Key saved successfully! You can now generate images.';
+                apiKeyStatus.classList.remove('hidden', 'text-red-600');
+                apiKeyStatus.classList.add('text-green-600');
+                
+                // Hide the bar after a short delay
+                setTimeout(() => {
+                    apiKeyBar.classList.add('hidden');
+                }, 2000);
+
+            } else {
+                apiKeyStatus.textContent = 'Please enter a valid key.';
+                apiKeyStatus.classList.remove('hidden', 'text-green-600');
+                apiKeyStatus.classList.add('text-red-600');
+            }
+            updateGenerateButtonState();
+        }
+        
+        /**
          * Converts a File object to a Base64 data URL string.
          * @param {File} file 
          * @returns {Promise<string>}
@@ -332,12 +410,12 @@
         }
         
         /**
-         * Displays the original uploaded image in its container. (NEW)
+         * Displays the original uploaded image in its container.
          * @param {string} base64Data - The Base64 image data (without mime type prefix).
          */
         function displayOriginalImage(base64Data) {
             originalPlaceholder.classList.add('hidden');
-            originalImage.src = `data:image/${originalImage.files?.[0]?.type.split('/')[1] || 'png'};base64,${base64Data}`;
+            originalImage.src = `data:image/${imageUpload.files?.[0]?.type.split('/')[1] || 'png'};base64,${base64Data}`;
             originalImage.classList.remove('hidden');
         }
 
@@ -421,7 +499,7 @@
         }
         
         /**
-         * Clears the original image display and shows the placeholder. (NEW)
+         * Clears the original image display and shows the placeholder.
          */
         function clearOriginalImageArea() {
             originalImage.classList.add('hidden');
@@ -478,9 +556,20 @@
          * Updates the state and styling of the generate button based on current selections.
          */
         function updateGenerateButtonState() {
+            // New check: is API key present and valid?
+            const isApiKeyReady = !!currentApiKey;
             const hasImage = !!originalImageBase64;
             const hasTraits = Object.keys(selectedTraits).length > 0;
-            const isReady = hasImage && hasTraits;
+            
+            // Generation is only ready if all three conditions are met
+            const isReady = isApiKeyReady && hasImage && hasTraits;
+
+            // Update API Key Bar visibility
+            if (!isApiKeyReady && API_KEY_PLACEHOLDER === "") {
+                 apiKeyBar.classList.remove('hidden');
+            } else {
+                 apiKeyBar.classList.add('hidden');
+            }
 
             generateBtn.disabled = !isReady;
             
@@ -530,8 +619,10 @@
         // --- Image Generation Logic ---
 
         async function generateImage() {
-            if (!originalImageBase64 || Object.keys(selectedTraits).length === 0) {
-                console.error("Missing image or selected trait.");
+            if (!originalImageBase64 || Object.keys(selectedTraits).length === 0 || !currentApiKey) {
+                errorMsg.textContent = "Please upload an image, select at least one trait, and ensure your API key is saved.";
+                errorMsg.classList.remove('hidden');
+                console.error("Pre-check failed: Missing required inputs.");
                 return;
             }
 
@@ -588,7 +679,8 @@
 
             try {
                 generatedData = await withExponentialBackoff(async () => {
-                    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${API_MODEL}:generateContent?key=${API_KEY}`;
+                    // Use the currentApiKey variable for the API call
+                    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${API_MODEL}:generateContent?key=${currentApiKey}`;
                     
                     const response = await fetch(apiUrl, {
                         method: 'POST',
@@ -599,7 +691,12 @@
                     if (!response.ok) {
                         const errorBody = await response.json();
                         console.error("Full API Error Response:", errorBody);
-                        throw new Error(`API Error: ${response.status} - ${errorBody.error?.message || response.statusText}. Check the console for full details.`);
+                        // Check for common API key error messages (400, 403)
+                        let errorMessage = errorBody.error?.message || response.statusText;
+                        if (response.status === 400 || response.status === 403) {
+                             errorMessage = "Authentication/API Key Error. Please ensure your key is correct and valid, and that the API is enabled for your project.";
+                        }
+                        throw new Error(`API Error: ${response.status} - ${errorMessage}. Check the console for full details.`);
                     }
 
                     const result = await response.json();
@@ -658,7 +755,15 @@
         // --- Event Listeners and Initial Setup ---
 
         document.addEventListener('DOMContentLoaded', () => {
+            initializeApiKey(); // Initialize the key first
             renderTraitControls();
+            
+            saveApiKeyBtn.addEventListener('click', handleSaveApiKey);
+            apiKeyInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    handleSaveApiKey();
+                }
+            });
         });
 
         imageUpload.addEventListener('change', async (event) => {
@@ -677,7 +782,7 @@
                     const base64 = await fileToBase64(file);
                     originalImageBase64 = base64;
                     
-                    // NEW: Call dedicated function to display the original image
+                    // Call dedicated function to display the original image
                     displayOriginalImage(base64); 
                     
                     updateGenerateButtonState();
